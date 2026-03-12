@@ -1,43 +1,55 @@
-import { NextRequest, NextResponse } from 'next/server'
-import prisma from '@/lib/prisma'
-import { z } from 'zod'
+import { z } from "zod";
+import prisma from "@/lib/prisma";
+import { jsonError, jsonOk } from "@/lib/api";
+import { normalizeText } from "@/lib/utils";
 
-const marketSchema = z.object({
+const createMarketSchema = z.object({
   name: z.string().min(1),
   region: z.string().optional(),
-})
+});
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_request: Request, context: { params: { id: string } }) {
   try {
     const markets = await prisma.market.findMany({
-      where: { projectId: params.id },
-      orderBy: { name: 'asc' },
-    })
-    return NextResponse.json(markets)
+      where: { projectId: context.params.id, isActive: true },
+      orderBy: { name: "asc" },
+    });
+
+    return jsonOk(markets);
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch markets' }, { status: 500 })
+    return jsonError("Failed to fetch markets", 500, String(error));
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, context: { params: { id: string } }) {
   try {
-    const body = await request.json()
-    const parsed = marketSchema.safeParse(body)
+    const payload = await request.json();
+    const parsed = createMarketSchema.safeParse(payload);
+
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+      return jsonError("Invalid market payload", 400, parsed.error.flatten());
     }
 
     const market = await prisma.market.create({
-      data: { ...parsed.data, projectId: params.id },
-    })
-    return NextResponse.json(market, { status: 201 })
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to create market' }, { status: 500 })
+      data: {
+        projectId: context.params.id,
+        name: parsed.data.name.trim(),
+        normalizedName: normalizeText(parsed.data.name),
+        region: parsed.data.region?.trim() || null,
+      },
+    });
+
+    return jsonOk(market, { status: 201 });
+  } catch (error: unknown) {
+    if (
+      typeof error === "object" &&
+      error &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      return jsonError("Market already exists for this project.", 409);
+    }
+
+    return jsonError("Failed to create market", 500, String(error));
   }
 }

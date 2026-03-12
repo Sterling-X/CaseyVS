@@ -1,34 +1,29 @@
-import { NextRequest, NextResponse } from 'next/server'
-import prisma from '@/lib/prisma'
+import prisma from "@/lib/prisma";
+import { jsonError, jsonOk } from "@/lib/api";
 
-export async function GET(request: NextRequest) {
+export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url)
-    const projectId = searchParams.get('projectId')
+    const url = new URL(request.url);
+    const projectId = url.searchParams.get("projectId");
 
     if (!projectId) {
-      return NextResponse.json({ error: 'projectId is required' }, { status: 400 })
+      return jsonError("projectId is required", 400);
     }
 
     const jobs = await prisma.importJob.findMany({
       where: { projectId },
       include: {
-        mappingProfile: { select: { name: true } },
-        _count: {
-          select: {
-            visibilityRecords: true,
-            mapPackRecords: true,
-            organicRecords: true,
-            gscRecords: true,
-          },
+        mappingProfile: { select: { id: true, name: true } },
+        validationIssues: {
+          orderBy: [{ severity: "desc" }, { rowNumber: "asc" }],
+          take: 25,
         },
       },
-      orderBy: { createdAt: 'desc' },
-    })
+      orderBy: { createdAt: "desc" },
+    });
 
-    return NextResponse.json(jobs)
+    return jsonOk(jobs);
   } catch (error) {
-    console.error('GET /api/imports error:', error)
-    return NextResponse.json({ error: 'Failed to fetch imports' }, { status: 500 })
+    return jsonError("Failed to fetch import history", 500, String(error));
   }
 }

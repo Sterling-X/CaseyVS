@@ -1,85 +1,95 @@
-import { NextRequest, NextResponse } from 'next/server'
-import prisma from '@/lib/prisma'
-import { z } from 'zod'
+import { z } from "zod";
+import prisma from "@/lib/prisma";
+import { jsonError, jsonOk } from "@/lib/api";
+import { normalizeDomain, slugify } from "@/lib/utils";
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).optional(),
-  industry: z.string().optional(),
+  industry: z.string().nullable().optional(),
+  category: z.string().nullable().optional(),
   domain: z.string().min(1).optional(),
-  description: z.string().optional(),
+  description: z.string().nullable().optional(),
   templateId: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
-})
+});
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_request: Request, context: { params: { id: string } }) {
   try {
     const project = await prisma.project.findUnique({
-      where: { id: params.id },
+      where: { id: context.params.id },
       include: {
         template: true,
-        markets: true,
-        competitors: { where: { isActive: true }, orderBy: { isPrimary: 'desc' } },
-        keywordSets: { include: { _count: { select: { keywords: true } } } },
-        _count: {
-          select: {
-            importJobs: true,
-            brandExclusions: true,
-            pageExclusions: true,
-          },
-        },
+        markets: { where: { isActive: true }, orderBy: { name: "asc" } },
+        intentGroups: { where: { isActive: true }, orderBy: { name: "asc" } },
+        competitors: { where: { isActive: true }, orderBy: [{ isPrimary: "desc" }, { domain: "asc" }] },
+        keywordSets: { where: { isActive: true }, orderBy: { createdAt: "asc" } },
       },
-    })
+    });
 
     if (!project) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+      return jsonError("Project not found", 404);
     }
 
-    return NextResponse.json(project)
+    return jsonOk(project);
   } catch (error) {
-    console.error('GET /api/projects/[id] error:', error)
-    return NextResponse.json({ error: 'Failed to fetch project' }, { status: 500 })
+    return jsonError("Failed to fetch project", 500, String(error));
   }
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: Request, context: { params: { id: string } }) {
   try {
-    const body = await request.json()
-    const parsed = updateProjectSchema.safeParse(body)
+    const payload = await request.json();
+    const parsed = updateProjectSchema.safeParse(payload);
+
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
+      return jsonError("Invalid project payload", 400, parsed.error.flatten());
     }
+
+    const data = {
+      ...parsed.data,
+      ...(parsed.data.domain
+        ? {
+            domain: normalizeDomain(parsed.data.domain),
+            normalizedDomain: normalizeDomain(parsed.data.domain),
+          }
+        : {}),
+      ...(parsed.data.name ? { slug: slugify(parsed.data.name) } : {}),
+    };
 
     const project = await prisma.project.update({
-      where: { id: params.id },
-      data: parsed.data,
-      include: { markets: true, template: true },
-    })
+      where: { id: context.params.id },
+      data,
+      include: {
+        template: true,
+        markets: { where: { isActive: true } },
+      },
+    });
 
-    return NextResponse.json(project)
+    return jsonOk(project);
   } catch (error) {
-    console.error('PATCH /api/projects/[id] error:', error)
-    return NextResponse.json({ error: 'Failed to update project' }, { status: 500 })
+    return jsonError("Failed to update project", 500, String(error));
   }
 }
 
-export async function DELETE(
-  _request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: Request, context: { params: { id: string } }) {
   try {
+    const url = new URL(request.url);
+    const mode = url.searchParams.get("mode");
+
+    if (mode === "hard") {
+      await prisma.project.delete({
+        where: { id: context.params.id },
+      });
+      return jsonOk({ success: true, deleted: true });
+    }
+
     await prisma.project.update({
-      where: { id: params.id },
+      where: { id: context.params.id },
       data: { isActive: false },
-    })
-    return NextResponse.json({ success: true })
+    });
+
+    return jsonOk({ success: true });
   } catch (error) {
-    console.error('DELETE /api/projects/[id] error:', error)
-    return NextResponse.json({ error: 'Failed to delete project' }, { status: 500 })
+    return jsonError("Failed to delete project", 500, String(error));
   }
 }

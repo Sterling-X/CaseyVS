@@ -1,20 +1,21 @@
-import { ImportSourceType } from "@prisma/client";
+import { ImportSourceType, IssueSeverity } from "@prisma/client";
 import { ZodError } from "zod";
 import {
   gscQuerySchema,
   semrushMapPackSchema,
+  semrushOverviewSchema,
   semrushOrganicSchema,
   semrushVisibilitySchema,
 } from "@/lib/import/schemas";
 import { getSourceDefinition } from "@/lib/import/source-definitions";
 import { ColumnMapping, ParsedRow, PreviewResult, ValidationIssue } from "@/lib/import/types";
 
-function getValue(row: ParsedRow, columnName: string | undefined) {
-  if (!columnName) {
+function getValue(row: ParsedRow, sourceColumn: string | undefined) {
+  if (!sourceColumn) {
     return undefined;
   }
 
-  return row[columnName] ?? undefined;
+  return row[sourceColumn] ?? undefined;
 }
 
 function mapRow(row: ParsedRow, mapping: ColumnMapping) {
@@ -30,9 +31,10 @@ function mapRow(row: ParsedRow, mapping: ColumnMapping) {
 function toIssues(error: ZodError, rowNumber: number): ValidationIssue[] {
   return error.issues.map((issue) => ({
     rowNumber,
-    field: issue.path[0] ? String(issue.path[0]) : null,
+    field: issue.path.length ? String(issue.path[0]) : null,
+    code: "SCHEMA_VALIDATION",
     message: issue.message,
-    severity: "ERROR",
+    severity: IssueSeverity.ERROR,
   }));
 }
 
@@ -46,6 +48,10 @@ function getSchema(sourceType: ImportSourceType) {
       return semrushOrganicSchema;
     case ImportSourceType.GSC_QUERY:
       return gscQuerySchema;
+    case ImportSourceType.SEMRUSH_RANKINGS_OVERVIEW:
+      return semrushOverviewSchema;
+    case ImportSourceType.GSC_PERFORMANCE_ZIP:
+      throw new Error("GSC ZIP imports do not use column mapping preview.");
     default:
       throw new Error(`Unsupported source type: ${sourceType}`);
   }
@@ -56,19 +62,27 @@ export function validateMapping(sourceType: ImportSourceType, mapping: ColumnMap
   const issues: ValidationIssue[] = [];
 
   for (const field of definition.requiredFields) {
-    if (!field.required) {
-      continue;
-    }
-
-    const mapped = mapping[field.key];
-    if (!mapped) {
+    if (field.required && !mapping[field.key]) {
       issues.push({
         rowNumber: null,
         field: field.key,
+        code: "MISSING_REQUIRED_MAPPING",
         message: `Missing mapping for required field: ${field.label}`,
-        severity: "ERROR",
+        severity: IssueSeverity.ERROR,
       });
     }
+  }
+
+  const usedSources = Object.values(mapping);
+  const hasDuplicateSourceMappings = usedSources.length !== new Set(usedSources).size;
+  if (hasDuplicateSourceMappings) {
+    issues.push({
+      rowNumber: null,
+      field: null,
+      code: "DUPLICATE_SOURCE_MAPPING",
+      message: "A source column is mapped to multiple target fields.",
+      severity: IssueSeverity.WARNING,
+    });
   }
 
   return issues;
@@ -80,7 +94,7 @@ export function previewMappedRows(
   mapping: ColumnMapping,
 ): PreviewResult<Record<string, unknown>> {
   const mappingIssues = validateMapping(sourceType, mapping);
-  if (mappingIssues.some((issue) => issue.severity === "ERROR")) {
+  if (mappingIssues.some((issue) => issue.severity === IssueSeverity.ERROR)) {
     return {
       rows: [],
       issues: mappingIssues,

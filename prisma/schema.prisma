@@ -1,0 +1,724 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum TemplateType {
+  SEO_VISIBILITY
+  LOCAL_SEO
+  CONTENT_AUTHORITY
+  PAID_SEARCH
+  MULTI_CHANNEL
+}
+
+enum ImportSourceType {
+  SEMRUSH_VISIBILITY
+  SEMRUSH_MAP_PACK
+  SEMRUSH_ORGANIC
+  GSC_QUERY
+  SEMRUSH_RANKINGS_OVERVIEW
+  GSC_PERFORMANCE_ZIP
+}
+
+enum ImportJobStatus {
+  PENDING
+  PREVIEWED
+  VALIDATED
+  COMMITTED
+  FAILED
+  REPLACED
+}
+
+enum KeywordType {
+  LOCAL
+  CORE
+  BRANDED
+  OTHER
+}
+
+enum ExclusionMatchType {
+  CONTAINS
+  EXACT
+  STARTS_WITH
+  ENDS_WITH
+  REGEX
+}
+
+enum IssueSeverity {
+  ERROR
+  WARNING
+  INFO
+}
+
+enum IssueStatus {
+  OPEN
+  RESOLVED
+  IGNORED
+}
+
+enum DataHealthIssueType {
+  UNMAPPED_KEYWORD
+  MISSING_REQUIRED_FIELD
+  DUPLICATE_KEYWORD
+  MISSING_COMPETITOR_MAPPING
+  MISSING_MARKET_VALUE
+  INCOMPLETE_KEYWORD_PAIR
+  DATE_INCONSISTENCY
+  EMPTY_IMPORT
+  KEYWORD_NOT_IN_PROJECT_SET
+  UNDETECTED_BRANDED_QUERY
+  RANK_OUTLIER
+  IMPORT_ERROR
+  FAILED_HEADER_DETECTION
+  MALFORMED_GROUP_HEADER
+  INVALID_RANKING_VALUE
+  MISSING_IMPORT_METADATA
+  DUPLICATE_IMPORT_PERIOD
+  MISSING_GSC_COMPONENT
+  UNDETECTED_PAGE_SPECIFIC_QUERY
+}
+
+model ReportingTemplate {
+  id                         String       @id @default(cuid())
+  name                       String
+  slug                       String       @unique
+  description                String?
+  templateType               TemplateType
+  requiredSources            Json
+  supportedMetrics           Json
+  requiredKeywordFields      Json
+  defaultDashboards          Json
+  defaultQAChecks            Json
+  defaultExclusionCategories Json
+  projects                   Project[]
+  createdAt                  DateTime     @default(now())
+  updatedAt                  DateTime     @updatedAt
+
+  @@map("reporting_templates")
+}
+
+model Project {
+  id                       String                    @id @default(cuid())
+  name                     String
+  slug                     String
+  industry                 String?
+  category                 String?
+  domain                   String
+  normalizedDomain         String
+  description              String?
+  templateId               String?
+  template                 ReportingTemplate?        @relation(fields: [templateId], references: [id])
+  isActive                 Boolean                   @default(true)
+  markets                  Market[]
+  intentGroups             IntentGroup[]
+  keywordSets              KeywordSet[]
+  keywords                 Keyword[]
+  keywordPairs             KeywordPair[]
+  competitors              Competitor[]
+  importJobs               ImportJob[]
+  mappingProfiles          ImportMappingProfile[]
+  brandExclusions          BrandExclusionTerm[]
+  pageExclusions           PageExclusionTerm[]
+  snapshots                DashboardSnapshot[]
+  dataHealthIssues         DataHealthIssue[]
+  savedViews               SavedDashboardView[]
+  rawImportFiles           RawImportFile[]
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  semrushVisibilityRecords SemrushVisibilityRecord[]
+  semrushMapPackRecords    SemrushMapPackRecord[]
+  semrushOrganicRecords    SemrushOrganicRecord[]
+  gscqueryRecords          GSCQueryRecord[]
+  semrushRankingRecords    SemrushRankingRecord[]
+  gscImportMetas           GSCImportMeta[]
+  gscPageRecords           GSCPageRecord[]
+  gscCountryRecords        GSCCountryRecord[]
+  gscDeviceRecords         GSCDeviceRecord[]
+  gscSearchAppearanceRows  GSCSearchAppearanceRecord[]
+
+  @@unique([slug])
+  @@unique([normalizedDomain])
+  @@map("projects")
+}
+
+model Market {
+  id                String                    @id @default(cuid())
+  projectId         String
+  project           Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name              String
+  normalizedName    String
+  region            String?
+  isActive          Boolean                   @default(true)
+  keywords          Keyword[]
+  visibilityRecords SemrushVisibilityRecord[]
+  mapPackRecords    SemrushMapPackRecord[]
+  organicRecords    SemrushOrganicRecord[]
+  semrushRankingRecords SemrushRankingRecord[]
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@unique([projectId, normalizedName])
+  @@map("markets")
+}
+
+model IntentGroup {
+  id             String    @id @default(cuid())
+  projectId      String
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name           String
+  normalizedName String
+  description    String?
+  isActive       Boolean   @default(true)
+  keywords       Keyword[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([projectId, normalizedName])
+  @@map("intent_groups")
+}
+
+model KeywordSet {
+  id          String    @id @default(cuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  isActive    Boolean   @default(true)
+  keywords    Keyword[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([projectId, name])
+  @@map("keyword_sets")
+}
+
+model Keyword {
+  id                String                    @id @default(cuid())
+  projectId         String
+  project           Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  keywordSetId      String?
+  keywordSet        KeywordSet?               @relation(fields: [keywordSetId], references: [id], onDelete: SetNull)
+  marketId          String?
+  market            Market?                   @relation(fields: [marketId], references: [id], onDelete: SetNull)
+  intentGroupId     String?
+  intentGroup       IntentGroup?              @relation(fields: [intentGroupId], references: [id], onDelete: SetNull)
+  text              String
+  normalizedText    String
+  keywordType       KeywordType
+  isPrimaryTarget   Boolean                   @default(false)
+  isActive          Boolean                   @default(true)
+  notes             String?
+  localPair         KeywordPair?              @relation("LocalKeywordPair")
+  corePair          KeywordPair?              @relation("CoreKeywordPair")
+  visibilityRecords SemrushVisibilityRecord[]
+  mapPackRecords    SemrushMapPackRecord[]
+  organicRecords    SemrushOrganicRecord[]
+  semrushRankingRecords SemrushRankingRecord[]
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@unique([projectId, normalizedText, keywordType, marketId])
+  @@index([projectId, keywordType])
+  @@map("keywords")
+}
+
+model KeywordPair {
+  id             String   @id @default(cuid())
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  localKeywordId String   @unique
+  coreKeywordId  String   @unique
+  localKeyword   Keyword  @relation("LocalKeywordPair", fields: [localKeywordId], references: [id], onDelete: Cascade)
+  coreKeyword    Keyword  @relation("CoreKeywordPair", fields: [coreKeywordId], references: [id], onDelete: Cascade)
+  notes          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([projectId, localKeywordId, coreKeywordId])
+  @@map("keyword_pairs")
+}
+
+model Competitor {
+  id                String                    @id @default(cuid())
+  projectId         String
+  project           Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  domain            String
+  normalizedDomain  String
+  name              String?
+  isPrimary         Boolean                   @default(false)
+  isActive          Boolean                   @default(true)
+  visibilityRecords SemrushVisibilityRecord[]
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@unique([projectId, normalizedDomain])
+  @@map("competitors")
+}
+
+model ImportMappingProfile {
+  id             String           @id @default(cuid())
+  projectId      String
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceType     ImportSourceType
+  name           String
+  mapping        Json
+  requiredFields Json
+  isDefault      Boolean          @default(false)
+  importJobs     ImportJob[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([projectId, sourceType, name])
+  @@map("import_mapping_profiles")
+}
+
+model ImportJob {
+  id                String                    @id @default(cuid())
+  projectId         String
+  project           Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mappingProfileId  String?
+  mappingProfile    ImportMappingProfile?     @relation(fields: [mappingProfileId], references: [id], onDelete: SetNull)
+  sourceType        ImportSourceType
+  status            ImportJobStatus           @default(PENDING)
+  fileName          String
+  fileSize          Int?
+  mimeType          String?
+  uploadDate        DateTime                  @default(now())
+  reportingMonth    DateTime
+  originalHeaders   Json?
+  columnMappings    Json?
+  rowCount          Int                       @default(0)
+  validRowCount     Int                       @default(0)
+  errorCount        Int                       @default(0)
+  warningCount      Int                       @default(0)
+  replaceExisting   Boolean                   @default(false)
+  summary           Json?
+  committedAt       DateTime?
+  rawFile           RawImportFile?
+  validationIssues  ImportValidationIssue[]
+  rawRecords        RawImportRecord[]
+  visibilityRecords SemrushVisibilityRecord[]
+  mapPackRecords    SemrushMapPackRecord[]
+  organicRecords    SemrushOrganicRecord[]
+  gscRecords        GSCQueryRecord[]
+  semrushRankingRecords SemrushRankingRecord[]
+  gscImportMeta     GSCImportMeta?
+  gscPageRecords    GSCPageRecord[]
+  gscCountryRecords GSCCountryRecord[]
+  gscDeviceRecords  GSCDeviceRecord[]
+  gscSearchAppearanceRows GSCSearchAppearanceRecord[]
+  dataHealthIssues  DataHealthIssue[]
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@index([projectId, sourceType, reportingMonth])
+  @@map("import_jobs")
+}
+
+model ImportValidationIssue {
+  id          String        @id @default(cuid())
+  importJobId String
+  importJob   ImportJob     @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  rowNumber   Int?
+  field       String?
+  severity    IssueSeverity
+  code        String?
+  message     String
+  createdAt   DateTime      @default(now())
+
+  @@index([importJobId, severity])
+  @@map("import_validation_issues")
+}
+
+model RawImportFile {
+  id            String    @id @default(cuid())
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  importJobId   String    @unique
+  importJob     ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  originalName  String
+  parsedColumns Json
+  sizeBytes     Int?
+  mimeType      String?
+  storagePath   String?
+  fileHash      String?
+  rawContent    String?
+  createdAt     DateTime  @default(now())
+
+  @@map("raw_import_files")
+}
+
+model RawImportRecord {
+  id              String    @id @default(cuid())
+  importJobId     String
+  importJob       ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  rowNumber       Int
+  rawData         Json
+  transformedData Json?
+  issues          Json?
+  isValid         Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+
+  @@index([importJobId, rowNumber])
+  @@map("raw_import_records")
+}
+
+model SemrushVisibilityRecord {
+  id                         String      @id @default(cuid())
+  importJobId                String
+  importJob                  ImportJob   @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  projectId                  String
+  project                    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  keywordId                  String?
+  keyword                    Keyword?    @relation(fields: [keywordId], references: [id], onDelete: SetNull)
+  keywordText                String
+  normalizedKeyword          String
+  competitorId               String?
+  competitor                 Competitor? @relation(fields: [competitorId], references: [id], onDelete: SetNull)
+  competitorDomain           String
+  normalizedCompetitorDomain String
+  visibilityScore            Float
+  position                   Int?
+  capturedAt                 DateTime
+  reportingMonth             DateTime
+  marketId                   String?
+  market                     Market?     @relation(fields: [marketId], references: [id], onDelete: SetNull)
+  rankingContext             String?
+  device                     String?
+  sourceRowNumber            Int?
+  createdAt                  DateTime    @default(now())
+
+  @@index([projectId, reportingMonth])
+  @@index([projectId, keywordId, reportingMonth])
+  @@map("semrush_visibility_records")
+}
+
+model SemrushMapPackRecord {
+  id                String    @id @default(cuid())
+  importJobId       String
+  importJob         ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  projectId         String
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  keywordId         String?
+  keyword           Keyword?  @relation(fields: [keywordId], references: [id], onDelete: SetNull)
+  keywordText       String
+  normalizedKeyword String
+  domain            String
+  normalizedDomain  String
+  position          Int
+  capturedAt        DateTime
+  reportingMonth    DateTime
+  marketId          String?
+  market            Market?   @relation(fields: [marketId], references: [id], onDelete: SetNull)
+  device            String?
+  sourceRowNumber   Int?
+  createdAt         DateTime  @default(now())
+
+  @@index([projectId, reportingMonth])
+  @@index([projectId, keywordId, reportingMonth])
+  @@map("semrush_map_pack_records")
+}
+
+model SemrushOrganicRecord {
+  id                String    @id @default(cuid())
+  importJobId       String
+  importJob         ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  projectId         String
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  keywordId         String?
+  keyword           Keyword?  @relation(fields: [keywordId], references: [id], onDelete: SetNull)
+  keywordText       String
+  normalizedKeyword String
+  domain            String
+  normalizedDomain  String
+  position          Int
+  capturedAt        DateTime
+  reportingMonth    DateTime
+  marketId          String?
+  market            Market?   @relation(fields: [marketId], references: [id], onDelete: SetNull)
+  device            String?
+  searchVolume      Int?
+  sourceRowNumber   Int?
+  createdAt         DateTime  @default(now())
+
+  @@index([projectId, reportingMonth])
+  @@index([projectId, keywordId, reportingMonth])
+  @@map("semrush_organic_records")
+}
+
+model GSCQueryRecord {
+  id               String    @id @default(cuid())
+  importJobId      String
+  importJob        ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  projectId        String
+  project          Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  query            String
+  normalizedQuery  String
+  clicks           Int       @default(0)
+  impressions      Int       @default(0)
+  ctr              Float?
+  averagePosition  Float?
+  dateRangeStart   DateTime?
+  dateRangeEnd     DateTime?
+  reportingMonth   DateTime
+  isBrandExcluded  Boolean   @default(false)
+  isPageExcluded   Boolean   @default(false)
+  exclusionReasons Json?
+  sourceRowNumber  Int?
+  createdAt        DateTime  @default(now())
+
+  currentClicks       Int       @default(0)
+  previousClicks      Int       @default(0)
+  currentImpressions  Int       @default(0)
+  previousImpressions Int       @default(0)
+  currentCtr          Float?
+  previousCtr         Float?
+  currentPosition     Float?
+  previousPosition    Float?
+  exclusionStatus     String?
+  exclusionReasonText String?
+
+  @@index([projectId, reportingMonth])
+  @@index([projectId, reportingMonth, isBrandExcluded, isPageExcluded])
+  @@map("gsc_query_records")
+}
+
+model SemrushRankingRecord {
+  id                String    @id @default(cuid())
+  importJobId       String
+  importJob         ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  projectId         String
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  keywordId         String?
+  keyword           Keyword?  @relation(fields: [keywordId], references: [id], onDelete: SetNull)
+  marketId          String?
+  market            Market?   @relation(fields: [marketId], references: [id], onDelete: SetNull)
+  keywordText       String
+  normalizedKeyword String
+  tags              String?
+  intents           String?
+  domain            String
+  normalizedDomain  String
+  capturedAt        DateTime
+  reportingMonth    DateTime
+  rank              Int?
+  rankingType       String?
+  landingUrl        String?
+  difference        Float?
+  searchVolume      Int?
+  cpc               Float?
+  keywordDifficulty Float?
+  sourceRowNumber   Int?
+  createdAt         DateTime @default(now())
+
+  @@index([projectId, reportingMonth])
+  @@index([projectId, normalizedDomain, reportingMonth])
+  @@index([projectId, keywordId, reportingMonth])
+  @@map("semrush_ranking_records")
+}
+
+model GSCImportMeta {
+  id                  String    @id @default(cuid())
+  importJobId         String    @unique
+  importJob           ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  projectId           String
+  project             Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reportingMonth      DateTime
+  searchType          String?
+  dateRangeLabel      String?
+  currentRangeLabel   String?
+  previousRangeLabel  String?
+  appliedFilters      Json?
+  rawFilters          Json?
+  createdAt           DateTime  @default(now())
+
+  @@index([projectId, reportingMonth])
+  @@map("gsc_import_meta")
+}
+
+model GSCPageRecord {
+  id                 String    @id @default(cuid())
+  importJobId        String
+  importJob          ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  projectId          String
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reportingMonth     DateTime
+  page               String
+  normalizedPage     String
+  currentClicks      Int       @default(0)
+  previousClicks     Int       @default(0)
+  currentImpressions Int       @default(0)
+  previousImpressions Int      @default(0)
+  currentCtr         Float?
+  previousCtr        Float?
+  currentPosition    Float?
+  previousPosition   Float?
+  sourceRowNumber    Int?
+  createdAt          DateTime  @default(now())
+
+  @@index([projectId, reportingMonth])
+  @@map("gsc_page_records")
+}
+
+model GSCCountryRecord {
+  id                 String    @id @default(cuid())
+  importJobId        String
+  importJob          ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  projectId          String
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reportingMonth     DateTime
+  country            String
+  normalizedCountry  String
+  currentClicks      Int       @default(0)
+  previousClicks     Int       @default(0)
+  currentImpressions Int       @default(0)
+  previousImpressions Int      @default(0)
+  currentCtr         Float?
+  previousCtr        Float?
+  currentPosition    Float?
+  previousPosition   Float?
+  sourceRowNumber    Int?
+  createdAt          DateTime  @default(now())
+
+  @@index([projectId, reportingMonth])
+  @@map("gsc_country_records")
+}
+
+model GSCDeviceRecord {
+  id                 String    @id @default(cuid())
+  importJobId        String
+  importJob          ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  projectId          String
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reportingMonth     DateTime
+  device             String
+  normalizedDevice   String
+  currentClicks      Int       @default(0)
+  previousClicks     Int       @default(0)
+  currentImpressions Int       @default(0)
+  previousImpressions Int      @default(0)
+  currentCtr         Float?
+  previousCtr        Float?
+  currentPosition    Float?
+  previousPosition   Float?
+  sourceRowNumber    Int?
+  createdAt          DateTime  @default(now())
+
+  @@index([projectId, reportingMonth])
+  @@map("gsc_device_records")
+}
+
+model GSCSearchAppearanceRecord {
+  id                 String    @id @default(cuid())
+  importJobId        String
+  importJob          ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  projectId          String
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reportingMonth     DateTime
+  appearance         String
+  normalizedAppearance String
+  currentClicks      Int       @default(0)
+  previousClicks     Int       @default(0)
+  currentImpressions Int       @default(0)
+  previousImpressions Int      @default(0)
+  currentCtr         Float?
+  previousCtr        Float?
+  currentPosition    Float?
+  previousPosition   Float?
+  sourceRowNumber    Int?
+  createdAt          DateTime  @default(now())
+
+  @@index([projectId, reportingMonth])
+  @@map("gsc_search_appearance_records")
+}
+
+model BrandExclusionTerm {
+  id             String             @id @default(cuid())
+  projectId      String
+  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  term           String
+  normalizedTerm String
+  category       String?
+  matchType      ExclusionMatchType @default(CONTAINS)
+  isActive       Boolean            @default(true)
+  notes          String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([projectId, normalizedTerm, category])
+  @@map("brand_exclusion_terms")
+}
+
+model PageExclusionTerm {
+  id             String             @id @default(cuid())
+  projectId      String
+  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  term           String
+  normalizedTerm String
+  category       String?
+  matchType      ExclusionMatchType @default(CONTAINS)
+  isActive       Boolean            @default(true)
+  notes          String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([projectId, normalizedTerm, category])
+  @@map("page_exclusion_terms")
+}
+
+model DashboardSnapshot {
+  id             String   @id @default(cuid())
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reportingMonth DateTime
+  snapshotData   Json
+  generatedAt    DateTime @default(now())
+
+  @@unique([projectId, reportingMonth])
+  @@map("dashboard_snapshots")
+}
+
+model SavedDashboardView {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String
+  pageKey   String
+  filters   Json
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, slug])
+  @@map("saved_dashboard_views")
+}
+
+model DataHealthIssue {
+  id             String              @id @default(cuid())
+  projectId      String
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  importJobId    String?
+  importJob      ImportJob?          @relation(fields: [importJobId], references: [id], onDelete: SetNull)
+  reportingMonth DateTime?
+  issueType      DataHealthIssueType
+  severity       IssueSeverity
+  status         IssueStatus         @default(OPEN)
+  title          String
+  details        String
+  affectedEntity String?
+  affectedId     String?
+  metadata       Json?
+  resolvedAt     DateTime?
+  resolvedNote   String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([projectId, reportingMonth, status])
+  @@map("data_health_issues")
+}
